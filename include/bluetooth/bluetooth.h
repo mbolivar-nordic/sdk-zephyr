@@ -474,6 +474,15 @@ enum {
 	 * @note Requires @ref BT_LE_ADV_OPT_EXT_ADV
 	 */
 	BT_LE_ADV_OPT_USE_TX_POWER = BIT(14),
+
+	/** Disable advertising on channel index 37. */
+	BT_LE_ADV_OPT_DISABLE_CHAN_37 = BIT(15),
+
+	/** Disable advertising on channel index 38. */
+	BT_LE_ADV_OPT_DISABLE_CHAN_38 = BIT(16),
+
+	/** Disable advertising on channel index 39. */
+	BT_LE_ADV_OPT_DISABLE_CHAN_39 = BIT(17),
 };
 
 /** LE Advertising Parameters. */
@@ -525,6 +534,8 @@ struct bt_le_adv_param {
 	 *
 	 * The advertising type will either be high duty cycle, or low duty
 	 * cycle if the BT_LE_ADV_OPT_DIR_MODE_LOW_DUTY option is enabled.
+	 * When using @ref BT_LE_ADV_OPT_EXT_ADV then only low duty cycle is
+	 * allowed.
 	 *
 	 * In case of connectable high duty cycle if the connection could not
 	 * be established within the timeout the connected() callback will be
@@ -612,12 +623,20 @@ struct bt_le_per_adv_param {
 			BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, \
 			_peer)
 
+/** Non-connectable advertising with private address */
 #define BT_LE_ADV_NCONN BT_LE_ADV_PARAM(0, BT_GAP_ADV_FAST_INT_MIN_2, \
 					BT_GAP_ADV_FAST_INT_MAX_2, NULL)
 
+/** Non-connectable advertising with @ref BT_LE_ADV_OPT_USE_NAME */
 #define BT_LE_ADV_NCONN_NAME BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_NAME, \
 					     BT_GAP_ADV_FAST_INT_MIN_2, \
 					     BT_GAP_ADV_FAST_INT_MAX_2, NULL)
+
+/** Non-connectable advertising with @ref BT_LE_ADV_OPT_USE_IDENTITY */
+#define BT_LE_ADV_NCONN_IDENTITY BT_LE_ADV_PARAM(BT_LE_ADV_OPT_USE_IDENTITY, \
+						 BT_GAP_ADV_FAST_INT_MIN_2, \
+						 BT_GAP_ADV_FAST_INT_MAX_2, \
+						 NULL)
 
 /**
  * Helper to declare periodic advertising parameters inline
@@ -960,6 +979,9 @@ struct bt_le_per_adv_sync_synced_info {
 
 	/** Advertiser PHY */
 	uint8_t phy;
+
+	/** True if receiving periodic advertisements, false otherwise. */
+	bool recv_enabled;
 };
 
 struct bt_le_per_adv_sync_term_info {
@@ -985,6 +1007,12 @@ struct bt_le_per_adv_sync_recv_info {
 
 	/** The Constant Tone Extension (CTE) of the advertisement */
 	uint8_t cte_type;
+};
+
+
+struct bt_le_per_adv_sync_state_info {
+	/** True if receiving periodic advertisements, false otherwise. */
+	bool recv_enabled;
 };
 
 struct bt_le_per_adv_sync_cb {
@@ -1026,6 +1054,22 @@ struct bt_le_per_adv_sync_cb {
 	void (*recv)(struct bt_le_per_adv_sync *sync,
 		     const struct bt_le_per_adv_sync_recv_info *info,
 		     struct net_buf_simple *buf);
+
+	/**
+	 * @brief The periodic advertising sync state has changed.
+	 *
+	 * This callback notifies the application about changes to the sync
+	 * state. Initialize sync and termination is handled by their individual
+	 * callbacks, and won't be notified here.
+	 *
+	 * @param sync  The periodic advertising sync object.
+	 * @param info  Information about the state change.
+	 */
+	void (*state_changed)(struct bt_le_per_adv_sync *sync,
+			      const struct bt_le_per_adv_sync_state_info *info);
+
+
+	sys_snode_t node;
 };
 
 /** Periodic advertising sync options */
@@ -1116,14 +1160,12 @@ uint8_t bt_le_per_adv_sync_get_index(struct bt_le_per_adv_sync *per_adv_sync);
  * to periodic advertising reports from an advertiser. Scan shall either be
  * disabled or extended scan shall be enabled.
  *
- * @param[in] param     Periodic advertising sync parameters.
- * @param[in] cb        Periodic advertising callbacks.
- * @param[out] out_sync Periodic advertising sync object on.
+ * @param[in]  param     Periodic advertising sync parameters.
+ * @param[out] out_sync  Periodic advertising sync object on.
  *
  * @return Zero on success or (negative) error code otherwise.
  */
 int bt_le_per_adv_sync_create(const struct bt_le_per_adv_sync_param *param,
-			      const struct bt_le_per_adv_sync_cb *cb,
 			      struct bt_le_per_adv_sync **out_sync);
 
 /**
@@ -1134,11 +1176,50 @@ int bt_le_per_adv_sync_create(const struct bt_le_per_adv_sync_param *param,
  * cancelled. If the sync has been established, it is terminated. The
  * periodic advertising sync object will be invalidated afterwards.
  *
+ * If the state of the sync object is syncing, then a new periodic advertising
+ * sync object may not be created until the controller has finished canceling
+ * this object.
+ *
  * @param per_adv_sync The periodic advertising sync object.
  *
  * @return Zero on success or (negative) error code otherwise.
  */
 int bt_le_per_adv_sync_delete(struct bt_le_per_adv_sync *per_adv_sync);
+
+/**
+ * @brief Register periodic advertising sync callbacks.
+ *
+ * Adds the callback structure to the list of callback structures for periodic
+ * adverising syncs.
+ *
+ * This callback will be called for all periodic advertising sync activity,
+ * such as synced, terminated and when data is received.
+ *
+ * @param cb Callback struct. Must point to memory that remains valid.
+ */
+void bt_le_per_adv_sync_cb_register(struct bt_le_per_adv_sync_cb *cb);
+
+/**
+ * @brief Enables receiving periodic advertising reports for a sync.
+ *
+ * If the sync is already receiving the reports, -EALREADY is returned.
+ *
+ * @param per_adv_sync The periodic advertising sync object.
+ *
+ * @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_sync_recv_enable(struct bt_le_per_adv_sync *per_adv_sync);
+
+/**
+ * @brief Disables receiving periodic advertising reports for a sync.
+ *
+ * If the sync report receiving is already disabled, -EALREADY is returned.
+ *
+ * @param per_adv_sync The periodic advertising sync object.
+ *
+ * @return Zero on success or (negative) error code otherwise.
+ */
+int bt_le_per_adv_sync_recv_disable(struct bt_le_per_adv_sync *per_adv_sync);
 
 enum {
 	/** Convenience value when no options are specified. */
@@ -1365,7 +1446,7 @@ int bt_le_scan_stop(void);
  * This callback will be called for all scanner activity, regardless of what
  * API was used to start the scanner.
  *
- * @param cb Callback struct. Must point to static memory.
+ * @param cb Callback struct. Must point to memory that remains valid.
  */
 void bt_le_scan_cb_register(struct bt_le_scan_cb *cb);
 

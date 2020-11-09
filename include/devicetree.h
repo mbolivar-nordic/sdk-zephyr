@@ -16,20 +16,7 @@
 #ifndef DEVICETREE_H
 #define DEVICETREE_H
 
-#ifdef _LINKER
-/*
- * Linker scripts include this file too, and autoconf.h isn't
- * automatically included for those files the way it is for C source
- * files. Make sure we pull it in before using
- * CONFIG_LEGACY_DEVICETREE_MACROS in that case.
- */
-#include <autoconf.h>
-#endif
-
 #include <devicetree_unfixed.h>
-#ifdef CONFIG_LEGACY_DEVICETREE_MACROS
-#include <devicetree_legacy_unfixed.h>
-#endif
 #include <devicetree_fixups.h>
 
 #include <sys/util.h>
@@ -40,6 +27,15 @@
  * @{
  * @}
  */
+
+/**
+ * @brief Name for an invalid node identifier
+ *
+ * This supports cases where factored macros can be invoked from paths where
+ * devicetree data may or may not be available.  It is a preprocessor identifier
+ * that does not match any valid devicetree node identifier.
+ */
+#define DT_INVALID_NODE _
 
 /*
  * Property suffixes
@@ -530,6 +526,24 @@
  * @return zero-based index of the property's value in its enum: list
  */
 #define DT_ENUM_IDX(node_id, prop) DT_PROP(node_id, prop##_ENUM_IDX)
+
+/**
+ * @brief Like DT_ENUM_IDX(), but with a fallback to a default enum index
+ *
+ * If the value exists, this expands to its zero based index value thanks to
+ * DT_ENUM_IDX(node_id, prop).
+ *
+ * Otherwise, this expands to provided default index enum value.
+ *
+ * @param node_id node identifier
+ * @param prop lowercase-and-underscores property name
+ * @param default_idx_value a fallback index value to expand to
+ * @return zero-based index of the property's value in its enum if present,
+ *         default_idx_value ohterwise
+ */
+#define DT_ENUM_IDX_OR(node_id, prop, default_idx_value) \
+	COND_CODE_1(DT_NODE_HAS_PROP(node_id, prop), \
+		    (DT_ENUM_IDX(node_id, prop)), (default_idx_value))
 
 /*
  * phandle properties
@@ -1921,7 +1935,7 @@
 	IS_ENABLED(UTIL_CAT(DT_CAT(DT_COMPAT_, compat), _BUS_##bus))
 
 /* have these last so they have access to all previously defined macros */
-#include <devicetree/adc.h>
+#include <devicetree/io-channels.h>
 #include <devicetree/clocks.h>
 #include <devicetree/gpio.h>
 #include <devicetree/spi.h>
@@ -1929,5 +1943,6 @@
 #include <devicetree/pwms.h>
 #include <devicetree/fixed-partitions.h>
 #include <devicetree/zephyr.h>
+#include <devicetree/ordinals.h>
 
 #endif /* DEVICETREE_H */

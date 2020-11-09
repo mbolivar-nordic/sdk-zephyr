@@ -27,6 +27,7 @@
 #include <irq_offload.h>
 #include <sys/check.h>
 #include <random/rand32.h>
+#include <sys/atomic.h>
 
 #define LOG_LEVEL CONFIG_KERNEL_LOG_LEVEL
 #include <logging/log.h>
@@ -120,14 +121,19 @@ bool z_is_thread_essential(void)
 #ifdef CONFIG_SYS_CLOCK_EXISTS
 void z_impl_k_busy_wait(uint32_t usec_to_wait)
 {
+	if (usec_to_wait == 0) {
+		return;
+	}
+
 #if !defined(CONFIG_ARCH_HAS_CUSTOM_BUSY_WAIT)
+	uint32_t start_cycles = k_cycle_get_32();
+
 	/* use 64-bit math to prevent overflow when multiplying */
 	uint32_t cycles_to_wait = (uint32_t)(
 		(uint64_t)usec_to_wait *
 		(uint64_t)sys_clock_hw_cycles_per_sec() /
 		(uint64_t)USEC_PER_SEC
 	);
-	uint32_t start_cycles = k_cycle_get_32();
 
 	for (;;) {
 		uint32_t current_cycles = k_cycle_get_32();
@@ -486,6 +492,10 @@ static char *setup_thread_stack(struct k_thread *new_thread,
 	 */
 	*((uint32_t *)stack_buf_start) = STACK_SENTINEL;
 #endif /* CONFIG_STACK_SENTINEL */
+#ifdef CONFIG_THREAD_LOCAL_STORAGE
+	/* TLS is always last within the stack buffer */
+	delta += arch_tls_stack_setup(new_thread, stack_ptr);
+#endif /* CONFIG_THREAD_LOCAL_STORAGE */
 #ifdef CONFIG_THREAD_USERSPACE_LOCAL_DATA
 	size_t tls_size = sizeof(struct _thread_userspace_local_data);
 
@@ -515,6 +525,8 @@ static char *setup_thread_stack(struct k_thread *new_thread,
 	return stack_ptr;
 }
 
+#define THREAD_COOKIE	0x1337C0D3
+
 /*
  * The provided stack_size value is presumed to be either the result of
  * K_THREAD_STACK_SIZEOF(stack), or the size value passed to the instance
@@ -528,6 +540,15 @@ char *z_setup_new_thread(struct k_thread *new_thread,
 {
 	char *stack_ptr;
 
+#if __ASSERT_ON
+	atomic_val_t old_val = atomic_set(&new_thread->base.cookie,
+					  THREAD_COOKIE);
+	/* Must be garbage or 0, never already set. Cleared at the end of
+	 * z_thread_single_abort()
+	 */
+	__ASSERT(old_val != THREAD_COOKIE,
+		 "re-use of active thread object %p detected", new_thread);
+#endif
 	Z_ASSERT_VALID_PRIO(prio, entry);
 
 #ifdef CONFIG_USERSPACE
@@ -547,6 +568,14 @@ char *z_setup_new_thread(struct k_thread *new_thread,
 	/* Initialize various struct k_thread members */
 	z_init_thread_base(&new_thread->base, prio, _THREAD_PRESTART, options);
 	stack_ptr = setup_thread_stack(new_thread, stack, stack_size);
+
+#ifdef KERNEL_COHERENCE
+	/* Check that the thread object is safe, but that the stack is
+	 * still cached!
+	 */
+	__ASSERT_NO_MSG(arch_mem_coherent(new_thread));
+	__ASSERT_NO_MSG(!arch_mem_coherent(stack));
+#endif
 
 	arch_new_thread(new_thread, stack, stack_ptr, entry, p1, p2, p3);
 
@@ -599,10 +628,7 @@ char *z_setup_new_thread(struct k_thread *new_thread,
 	}
 #endif
 #ifdef CONFIG_USERSPACE
-	/* New threads inherit any memory domain membership by the parent */
-	new_thread->mem_domain_info.mem_domain = NULL;
-	k_mem_domain_add_thread(_current->mem_domain_info.mem_domain,
-				new_thread);
+	z_mem_domain_init_thread(new_thread);
 
 	if ((options & K_INHERIT_PERMS) != 0U) {
 		z_thread_perms_inherit(_current, new_thread);
@@ -810,8 +836,15 @@ FUNC_NORETURN void k_thread_user_mode_enter(k_thread_entry_t entry,
 #ifdef CONFIG_USERSPACE
 	__ASSERT(z_stack_is_user_capable(_current->stack_obj),
 		 "dropping to user mode with kernel-only stack object");
+#ifdef CONFIG_THREAD_USERSPACE_LOCAL_DATA
 	memset(_current->userspace_local_data, 0,
 	       sizeof(struct _thread_userspace_local_data));
+#endif
+#ifdef CONFIG_THREAD_LOCAL_STORAGE
+	arch_tls_stack_setup(_current,
+			     (char *)(_current->stack_info.start +
+				      _current->stack_info.size));
+#endif
 	arch_user_mode_enter(entry, p1, p2, p3);
 #else
 	/* XXX In this case we do not reset the stack */
@@ -828,7 +861,7 @@ bool z_spin_lock_valid(struct k_spinlock *l)
 	uintptr_t thread_cpu = l->thread_cpu;
 
 	if (thread_cpu) {
-		if ((thread_cpu & 3) == _current_cpu->id) {
+		if ((thread_cpu & 3U) == _current_cpu->id) {
 			return false;
 		}
 	}
