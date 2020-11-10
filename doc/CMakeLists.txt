@@ -312,7 +312,7 @@ set(SPHINX_BUILD_HTML_COMMAND
   # nrf/doc/CMakeLists.txt.
   ZEPHYR_OUTPUT=${SPHINX_OUTPUT_DIR}
   ZEPHYR_RST_SRC=${RST_OUT}/doc
-  KCONFIG_OUTPUT=${KCONFIG_OUTPUT}
+  CONFIGURATION_OUTPUT=${CONFIGURATION_OUTPUT}
 
   ${SPHINXBUILD} -w ${SPHINX_LOG} -N -t ${DOC_TAG} -b html ${ALLSPHINXOPTS} ${RST_OUT}/doc ${SPHINX_OUTPUT_DIR_HTML})
 
@@ -422,9 +422,9 @@ endif()
 # Dependencies and final targets
 #
 
-# nRF-specific: No 'kconfig' dependency here, because we use a shared Kconfig
-# documentation set instead
-add_dependencies(html content doxy_real_modified_times devicetree)
+# nRF-specific: No 'kconfig' or 'devicetree' dependencies here,
+# because we use a shared Kconfig/DT documentation set instead
+add_dependencies(html content doxy_real_modified_times)
 
 add_custom_target(
   htmldocs
