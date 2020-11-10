@@ -289,8 +289,6 @@ def write_bindings_rst(vnd_lookup, out_dir):
     ##############
 
     This page documents the available devicetree bindings.
-    See {zref('dt-bindings')} for an introduction to the Zephyr bindings
-    file format.
 
     Vendor index
     ************
@@ -551,10 +549,6 @@ def print_property_table(prop_specs, string_io):
                         ', '.join(f'``{repr(val)}``' for val in
                                   prop_spec.enum))
 
-        if prop_spec.name in DETAILS_IN_IMPORTANT_PROPS:
-            details += (f'\n\nSee {zref("dt-important-props")} for more '
-                        'information.')
-
         return f"""\
    * - ``{prop_spec.name}``
      - ``{prop_spec.type}``
@@ -599,31 +593,6 @@ def binding_ref_target(binding):
     if binding.on_bus is not None:
         ret += f'_{binding.on_bus}'
     return ret
-
-def zref(target, text=None):
-    # Make an appropriate RST :ref:`text <target>` or :ref:`target`
-    # string to a zephyr documentation ref target 'target', and return
-    # it.
-    #
-    # By default, the bindings docs are in the main Zephyr
-    # documentation, but this script supports putting them in a
-    # separate Sphinx doc set. Since we also link to Zephyr
-    # documentation from the generated content, we have an environment
-    # variable based escape hatch for putting the target in the zephyr
-    # doc set.
-    #
-    # This relies on intersphinx:
-    # https://www.sphinx-doc.org/en/master/usage/extensions/intersphinx.html
-
-    docset = os.environ.get('GEN_DEVICETREE_REST_ZEPHYR_DOCSET')
-
-    if docset.strip():
-        target = f'{docset}:{target}'
-
-    if text:
-        return f':ref:`{text} <{target}>`'
-
-    return f':ref:`{target}`'
 
 def binding_filename(binding):
     if binding.on_bus is None:
