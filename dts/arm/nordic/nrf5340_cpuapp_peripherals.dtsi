@@ -457,7 +457,7 @@ vmc: vmc@81000 {
 };
 
 gpio0: gpio@842500 {
-	compatible = "nordic,nrf-gpio";
+	compatible = "nordic,nrf53-gpio";
 	gpio-controller;
 	reg = <0x842500 0x300>;
 	#gpio-cells = <2>;
@@ -467,7 +467,7 @@ gpio0: gpio@842500 {
 };
 
 gpio1: gpio@842800 {
-	compatible = "nordic,nrf-gpio";
+	compatible = "nordic,nrf53-gpio";
 	gpio-controller;
 	reg = <0x842800 0x300>;
 	#gpio-cells = <2>;

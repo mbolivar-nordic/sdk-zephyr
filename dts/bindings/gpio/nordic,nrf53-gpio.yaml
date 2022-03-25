@@ -1,0 +1,19 @@
+# Copyright (c) 2022 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+description: nRF53 GPIO node
+
+compatible: "nordic,nrf53-gpio"
+
+include: [nordic,nrf-gpio.yaml]
+
+properties:
+    secure-pin-mask:
+      type: int
+      required: false
+      description:
+        GPIO is implemented with split security. If it has been configured as
+        non-secure it can be accessed by both secure and non-secure accesses.
+        A bitmask can be set to configure a subset of the GPIO pins as secure
+        to prevent non-secure from accessing these pin. Secure accesses can be
+        made to GPIO pins configured as non-secure.
